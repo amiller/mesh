@@ -1,87 +1,23 @@
 from visuals.pointwindow import PointWindow
-from objloader import OBJ,MTL
 from OpenGL.GL import *
 import opencl
 import cv
-import bvh
-import cPickle as pickle
-import os
+import mesh
 
-#meshname = 'teapot'
-#meshname = 'blueghost'
-#meshname = 'bunny69k'
-meshname = 'hall1'
 
 if not 'window' in globals():
     window = PointWindow(size=(640,480))
 
 
-def load_mesh():
-    opencl.load_mesh(vertices, faces)
-    window.Refresh()
-
-
-def cache_or_build(src_file, cache_file, build_func):
-    try:
-        t1 = os.stat(src_file).st_mtime
-        t2 = os.stat(cache_file).st_mtime
-        assert t1 < t2
-        print 'Loading from cache %s' % cache_file
-        with open(cache_file, 'rb') as f:
-            obj = pickle.load(f)
-    except (OSError, IOError, AssertionError):
-        print 'Building %s -> %s' % (src_file, cache_file)
-        obj = build_func(src_file)
-        print 'Saving to cache %s' % cache_file
-        with open(cache_file, 'wb') as f:
-            pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
-    return obj
-
-
 def load_obj():
-    # Load a mesh from an obj file
-    global obj
-
-    def build(src_file):
-        savedpath = os.getcwd()
-        try:
-            os.chdir('data')
-            return OBJ('%s.obj' % meshname)
-        finally:
-            os.chdir(savedpath)
-    obj = cache_or_build('data/%s.obj' % meshname,
-                         'data/%s_cache.pkl' % meshname,
-                         build)
-    obj.compile()
-
-    points = np.array(obj.vertices,'f')
-
-    # Scale the model down and center it
-    global scale
-    scale = points.std()*2
-    points /= scale
-    points = np.hstack((points,np.zeros((points.shape[0],1),'f')))
-    window.update_points(points[:,:3])
-    window.lookat = points[:,:3].mean(0)
+    mesh.load_random()
+    window.update_points(mesh.points[:,:3])
+    window.lookat = mesh.points[:,:3].mean(0)
+    opencl.load_mesh(mesh.vertices, mesh.faces)
     window.Refresh()
 
-    # Just the vertices, useful for putting in a vertexbuffer
-    global vertices
-    vertices = np.ascontiguousarray(points)
 
-    # The faces, specifically triangles, as vertex indices
-    global faces
-    faces = np.array([(v[0],v[1],v[2],0) for v,_,_,_ in obj.faces])-1
-
-    load_mesh()
-
-    global mybvh
-    mybvh = cache_or_build('data/%s.obj' % meshname,
-                           'data/%s_bvh.pkl' % meshname,
-                           lambda _: bvh.from_faces(vertices, faces))
-
-if not 'obj' in globals(): load_obj()
-load_mesh()
+if not 'obj' in mesh.__dict__: load_obj()
 
 
 def make_random_ray():
@@ -126,22 +62,22 @@ def post_draw():
     glShadeModel(GL_SMOOTH)
     #mat = glGetFloatv(GL_MODELVIEW_MATRIX).transpose()
     glPushMatrix()
-    glScale(1.0/scale,1.0/scale,1.0/scale)
-    glCallList(obj.gl_list)
+    glScale(1.0/mesh.scale,1.0/mesh.scale,1.0/mesh.scale)
+    glCallList(mesh.obj.gl_list)
     glPopMatrix()
     glDisable(GL_LIGHTING)
 
     if 1:
         glColor(1,1,0)
-        mybvh.draw_boxes()
+        mesh.mybvh.draw_boxes()
 
     if 'ray' in globals():
         glColor(1,1,0)
-        nodes, tri, t = mybvh.intersect(*ray)
+        nodes, tri, t = mesh.mybvh.intersect(*ray)
         x1,d = ray
         if t > 1000: t = 1000
 
-        verts, line_inds, _ = bvh.BVH.box_vertices(nodes)
+        verts, line_inds, _ = mesh.bvh.BVH.box_vertices(nodes)
         glEnableClientState(GL_VERTEX_ARRAY)
         glVertexPointerf(verts)
         glDrawElementsui(GL_LINES, line_inds)
