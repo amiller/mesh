@@ -1,0 +1,18 @@
+#Materials exported from Google Sketchup
+
+newmtl __Vegetation_Blur7__Vegetation_Blur7_jpg
+   Ka 0.000000 0.000000 0.000000
+   Kd   1.0000   1.0000   1.0000
+   Tr 1.0
+   Ks 0.000000 0.000000 0.000000
+   Ns   3.2000
+   map_Kd Vegetation_Blur7.jpg
+
+newmtl __Brick_Pavers_Modular__Brick_Pavers_Modular_jpg
+   Ka 0.000000 0.000000 0.000000
+   Kd   1.0000   1.0000   1.0000
+   Tr 1.0
+   Ks 0.000000 0.000000 0.000000
+   Ns   3.2000
+   map_Kd Brick_Pavers_Modular.jpg
+

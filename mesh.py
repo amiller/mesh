@@ -20,6 +20,7 @@ def load(meshname, do_scale=False):
 
     # Load a mesh from an obj file
     global obj
+    savedpath = os.getcwd()
 
     def build(src_file):
         savedpath = os.getcwd()
@@ -31,7 +32,12 @@ def load(meshname, do_scale=False):
     obj = cache_or_build('data/%s.obj' % meshname,
                          'data/%s_cache.pkl' % meshname,
                          build)
-    obj.compile()
+    try:
+        os.chdir('data')
+        obj.compile()
+    finally:
+        os.chdir(savedpath)
+
     global points
     points = np.array(obj.vertices,'f')
 
