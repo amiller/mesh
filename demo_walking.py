@@ -4,6 +4,8 @@ from OpenGL.GLU import *
 import cv
 import mesh
 import wx
+import cybvh
+import random
 
 if not 'window' in globals():
     window = PointWindow(size=(640,480))
@@ -11,6 +13,9 @@ if not 'window' in globals():
 
 meshname = 'hall1'
 mesh.load(meshname)
+mycybvh = cybvh.CyBVH(mesh.mybvh.verts[:,:3].copy(),
+                      np.array(mesh.mybvh.tris)[:,:3].copy(),
+                      mesh.mybvh.nodes)
 
 
 def reset_sink():
@@ -26,7 +31,7 @@ if not 'sink' in globals():
 
 def sphere_intersect(radius, center, camera, direction):
     import scipy.weave
-    assert center.ctype == camera.type == direction.type == np.float32
+    assert center.dtype == camera.dtype == direction.dtype == np.float32
     assert center.shape == (3,)
     assert camera.shape == (3,)
     assert direction.shape == (3,)
@@ -52,7 +57,7 @@ def random_ray():
     """Generate some rays and intersect with the world. If it intersects,
     make a specular reflections. Check for intersection with the sphere.
     """
-    d = np.random.rand(3)-.5
+    d = np.random.rand(3).astype('f')-.5
     d /= np.sqrt(np.dot(d,d))
     t = sphere_intersect(sinkrad, sink, source, d)
     global ray
@@ -75,77 +80,22 @@ def show_distribution():
 
 def sample_rays(n_rays=10000):
     global paths
+    ps = mycybvh.sample_rays(source, sink, sinkrad, n_rays)
+    keys = ['source','sink','diverge','scaflect']
     paths = []
-    mybvh = mesh.mybvh
-
-    def sample_unitsphere():
-        sq = inf
-        while sq > 0.25:
-            ray = np.random.rand(3)-0.5
-            sq = np.dot(ray,ray)
-        ray /= np.sqrt(sq)
-        return ray
-
-    for _ in range(n_rays):
-        # path a list of vertices from the origin to the final intersection
-        # [(origin,direction,type,cumdist)]
-        # where type is 'source','specular' or 'sink'
-        path = []
-
-        direction = sample_unitsphere()
-        origin = source
-        ntype = 'source'
-        cumdist = 0.
-
-        def step(origin, direction):
-            # Check if it intserects the listener sphere
-            sphere_t = sphere_intersect(sinkrad, sink, origin, direction)
-
-            # See if it intersects the scene
-            _,tri,t = mybvh.intersect(origin, direction)
-
-            if sphere_t < inf and sphere_t < t:
-                # We made it to the listener before crashing
-                return (origin+direction*sphere_t,None,'sink',cumdist+sphere_t)
-
-            elif t == inf:
-                # We diverged
-                return (None,None,'diverge',inf)
-
-            else:
-                # We intersected the scene. Choose a weighted combination of
-                # diffuse and specular reflection as per (Rezk 2007)
-                origin = origin + direction*t
-
-                # Get the normal from the vertices and triangle list in the bvh
-                v0,v1,v2 = mybvh.verts[tri[:3],:3]
-
-                normal = np.cross((v1-v0),(v2-v1))
-                normal /= np.sqrt(np.dot(normal,normal))
-
-                # Choose a weighted sum of the specular reflection and
-                # a hemisphere sampling
-                specular = direction - 2*normal*np.dot(normal,direction)
-                diffuse = sample_unitsphere()
-                diffuse *= np.sign(np.dot(diffuse,normal))
-                alpha = 0.3
-                direction = alpha * diffuse + (1 - alpha) * specular
-                direction /= np.sqrt(np.dot(direction,direction))
-
-                return (origin,direction,'scaflect',cumdist+t)
-
-        # Generate a fixed number of rays
-        for i in range(5):
-            path.append(dict(origin=origin,
-                             direction=direction,
-                             ntype=ntype,
-                             cumdist=cumdist))
-            if ntype in ('diverge','sink') or i==4:
-                break
-            origin,direction,ntype,cumdist = step(origin, direction)
-
-        if ntype == 'sink':
-            paths.append(path)
+    for path in ps:
+        p_ = []
+        for p in path:
+            o = p['origin']
+            d = p['direction']
+            n = p['ntype']
+            cumdist = p['cumdist']
+            p_.append(dict(origin=np.array((o['x'],o['y'],o['z'])),
+                           direction=np.array((d['x'],d['y'],d['z'])),
+                           ntype=keys[n],
+                           cumdist=cumdist))
+        paths.append(p_)
+    window.Refresh()
 
 
 def set_camera(self):
@@ -228,7 +178,6 @@ def EVT_KEY_UP(evt):
     evt.Skip()
 
 
-
 @window.event
 def post_draw():
     glLightfv(GL_LIGHT0, GL_POSITION, (-40, 200, 100, 0.0))
@@ -266,12 +215,13 @@ def post_draw():
         glBegin(GL_LINES)
         for path in paths:
             x1 = path[0]['origin']
+            #orgn = True
             for d in path[1:]:
                 ntype = d['ntype']
                 origin = d['origin']
-                if ntype == 'scaflect': glColor(1,1,0)
-                if ntype == 'sink': glColor(1,1,1)
-                else: glColor(1,0,0)
+                if ntype == 'sink': glColor(1,.7,.7)
+                #elif orgn: glColor(.7,.7,1); orgn=False
+                else: glColor(1,1,1)
                 x2 = origin
                 glVertex(*x1)
                 glVertex(*x2)

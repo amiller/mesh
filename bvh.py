@@ -191,6 +191,7 @@ class BVH(object):
         # Try one box at a time
         while len(stack) > 0:
             node = stack.pop()
+
             min, max, ID, n_tri, _, _ = node
             if n_tri > 0:  # Leaf node
                 # Intersect against each of the triangles

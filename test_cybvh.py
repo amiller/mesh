@@ -4,7 +4,7 @@ import numpy as np
 import mesh
 import time
 
-N_RAYS = 10000
+N_RAYS = 1000
 origins = np.random.rand(N_RAYS,3).astype('f')
 directions = np.random.rand(N_RAYS,3).astype('f')-0.5
 directions /= np.sqrt(np.sum(directions*directions,1))\
@@ -52,3 +52,22 @@ def test_load_bvh():
     t1_1 = time.time()
     print "[numpy]  %d tests in %.3f seconds" % \
           (len(mesh.mybvh.tris)*N_RAYS/1000, t1_1-t1_0)
+
+
+def test_bvh():
+
+    global tri_T1
+    t0_0 = time.time()
+    tri_T1 = [mycybvh.intersect(origins[i], directions[i])
+              for i in range(N_RAYS)]
+    t0_1 = time.time()
+    print "[cython] %d tests in %.3f seconds" % (N_RAYS*len(mesh.mybvh.tris),
+                                                 t0_1-t0_0)
+
+    global tri_T2
+    t1_0 = time.time()
+    tri_T2 = [mesh.mybvh.intersect(origins[i], directions[i])
+              for i in range(N_RAYS/10)]
+    t1_1 = time.time()
+    print "[numpy]  %d tests in %.3f seconds" % \
+          (len(mesh.mybvh.tris)*N_RAYS/10, t1_1-t1_0)
