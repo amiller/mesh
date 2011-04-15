@@ -164,7 +164,7 @@ class BVH(object):
             if hit_T < min_T:
                 min_T = hit_T
                 best_tri = tri
-                
+
         return best_tri, min_T
 
     def intersect(self, origin, direction):

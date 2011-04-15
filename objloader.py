@@ -107,7 +107,7 @@ class OBJ:
             else:
                 # just use diffuse colour
                 glColor(*mtl['Kd'])
- 
+
             glBegin(GL_POLYGON)
             for i in range(len(vertices)):
                 if normals[i] > 0:
