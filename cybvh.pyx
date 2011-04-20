@@ -347,7 +347,6 @@ cdef class CyBVH(object):
             p = Path(source, sample_unitsphere_p(), SOURCE, 0)
             
             # Generate a fixed number of rays
-            # TODO implement russian roulette
             while True:
                 path.append(p)
                 if p.ntype in (DIVERGE, SINK) or rand()*iM < roulette:
@@ -409,7 +408,7 @@ cdef class CyBVH(object):
             specular = sub(direction, scale(normal, 2*dot(normal,direction)))
             diffuse = sample_unitsphere_p()
             diffuse = scale(diffuse, -1 if dot(diffuse,normal) < 0 else 1)
-            alpha = 0.3
+            alpha = 0.1
             direction = add(scale(diffuse,alpha), scale(specular, 1 - alpha))
             direction = scale(direction, 1./sqrt(dot(direction,direction)))
 

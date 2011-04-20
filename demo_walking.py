@@ -6,12 +6,16 @@ import mesh
 import wx
 import cybvh
 import random
+import quantities as pq
+import sounds
 
 if not 'window' in globals():
     window = PointWindow(size=(640,480))
 
 
-meshname = 'hall1'
+ROULETTE=0.2
+
+meshname = 'ellipse'
 mesh.load(meshname)
 mycybvh = cybvh.CyBVH(mesh.mybvh.verts[:,:3].copy(),
                       np.array(mesh.mybvh.tris)[:,:3].copy(),
@@ -21,36 +25,12 @@ mycybvh = cybvh.CyBVH(mesh.mybvh.verts[:,:3].copy(),
 def reset_sink():
     global sink, sinkrad, source
     sinkrad = 0.8
-    source = np.array([-1,0,0.2],'f')
+    source = np.array([0,0,0],'f')
     sink = np.array([0,0,0],'f')
 
 if not 'sink' in globals():
     reset_sink()
     window.Refresh()
-
-
-def sphere_intersect(radius, center, camera, direction):
-    import scipy.weave
-    assert center.dtype == camera.dtype == direction.dtype == np.float32
-    assert center.shape == (3,)
-    assert camera.shape == (3,)
-    assert direction.shape == (3,)
-    r = radius
-    c = center
-    d = direction
-    p = camera
-    oc = c - p
-    loc2 = np.dot(oc,oc)
-    if (loc2 < r*r):
-        return inf  # Starting inside the sphere!
-    tca = np.dot(d, oc)
-    if (tca < 0):
-        return inf  # Sphere center is behind us
-    lhc2 = r*r - loc2 + tca*tca
-    if (lhc2 < 0):
-        return inf  # Missed!
-    t = tca - np.sqrt(lhc2)
-    return t
 
 
 def random_ray():
@@ -59,7 +39,7 @@ def random_ray():
     """
     d = np.random.rand(3).astype('f')-.5
     d /= np.sqrt(np.dot(d,d))
-    t = sphere_intersect(sinkrad, sink, source, d)
+    t = cybvh.intersect_sphere(sinkrad, sink, source, d)
     global ray
     ray = dict(direction=d,origin=source,t=t)
     #window.Refresh()
@@ -71,31 +51,126 @@ def find_direct_ray():
         if ray['t'] < inf:
             break
 
+from scipy import stats
 
-def show_distribution():
+
+def pink1d(n, rvs=stats.norm.rvs):
+    k = min(int(np.floor(np.log2(n))), 6)
+    pink = np.zeros((n,), 'f')
+    m = 1
+    for i in range(k):
+        p = int(np.ceil(float(n) / m))
+        pink += np.repeat(rvs(size=p), m,axis=0)[:n]
+        m <<= 1
+    return pink/k
+pinksample = pink1d(sounds.filter_len)
+
+
+def update_filter(identity=False):
+    #import pdb
+    #pdb.set_trace()
+    times, amp = energy_contributions()
+    global H
+    if identity:
+        H = np.zeros(sounds.filter_len,'f')
+        H[0]=1
+    else:
+        H,_ = np.histogram(times,
+                           weights=amp,
+                           bins=sounds.filter_len,
+                           range=(0,1.*sounds.filter_len/sounds.rate))
+    filt = H.astype('f')
+    #filt /= np.abs(filt).sum()
+    #filt *= (np.random.rand(sounds.filter_len)-0.5)*2
+    #filt *= pink1d(sounds.filter_len)
+    filt *= pinksample*80
+    sounds.set_filter(filt)
+
+
+def accumulate(reset=True):
+    import pylab
+    sample_rays(1000, reset=reset);
+    try:
+        while True:
+            sample_rays(1000);
+            draw()
+    except KeyboardInterrupt:
+        pass
+    draw()
+
+
+def energy_contributions():
+
+    global paths, dists, total_rays
+
+    # Find the time for each impulse based on the speed of sound and distance
+    dists = np.array([p[-1][-1] for p in paths])
+    times = dists*pq.m / (343*pq.m/pq.s)
+
+    # Find the energy using sound propagation
+    #dB = 20 * pq.micro * pq.pascal
+    # attenuation = np.exp()
+
+    # Divide by roulette compensation factor
+    bounces = np.array([len(p)-2 for p in paths])*0
+    pressure_contribution = np.sqrt((1/(1-ROULETTE))**bounces)/total_rays
+
+    return times, pressure_contribution
+
+
+def sample_rays(n_rays=10000, reset=False):
     global paths
-    dists = np.array([p[-1]['cumdist'] for p in paths])
-    return dists
+    global total_rays
+    global line_verts, line_colors
 
+    if reset or not 'line_verts' in globals():
+        paths = []
+        total_rays = 0
+        line_verts = np.empty((0,3),'f')
+        line_colors = np.empty((0,3),'f')
+    total_rays += n_rays
+    line_verts_ = []
+    line_colors_ = []
 
-def sample_rays(n_rays=10000):
-    global paths
-    ps = mycybvh.sample_rays(source, sink, sinkrad, n_rays)
+    ps = mycybvh.sample_rays(source, sink, sinkrad, n_rays, ROULETTE)
     keys = ['source','sink','diverge','scaflect']
-    paths = []
+
     for path in ps:
         p_ = []
-        for p in path:
+        x1 = path[0]['origin']
+        x1 = x1['x'], x1['y'], x1['z']
+        orgn = True
+        for p in path[1:]:
             o = p['origin']
             d = p['direction']
-            n = p['ntype']
+            ntype = keys[p['ntype']]
             cumdist = p['cumdist']
-            p_.append(dict(origin=np.array((o['x'],o['y'],o['z'])),
-                           direction=np.array((d['x'],d['y'],d['z'])),
-                           ntype=keys[n],
-                           cumdist=cumdist))
+            origin = o['x'],o['y'],o['z']
+            direction = d['x'],d['y'],d['z']
+            x2 = origin
+            if ntype == 'sink':
+                line_colors_ += 2*((1,.6,.6),)
+            elif orgn:
+                line_colors_ += 2*((.6,.6,1),)
+                orgn=False
+            else:
+                line_colors_ += 2*((1,1,1),)
+            x2 = origin
+            line_verts_.append(x1)
+            line_verts_.append(x2)
+            x1 = x2
+            p_.append((origin, direction, ntype, cumdist))
         paths.append(p_)
+    if line_colors_:
+        line_colors = np.vstack((line_colors, np.array(line_colors_,'f')))
+        line_verts = np.vstack((line_verts, np.array(line_verts_,'f')))
     window.Refresh()
+
+    pylab.clf();
+    times, pressure = energy_contributions()
+    pylab.hist(times,weights=pressure,bins=100, range=(0,0.2))
+    pylab.waitforbuttonpress(0.03)
+    update_filter()
 
 
 def set_camera(self):
@@ -167,7 +242,7 @@ def EVT_KEY_DOWN(evt):
 def EVT_CHAR(evt):
     key = evt.GetKeyCode()
     if key == ord(' '):
-        find_direct_ray()
+        sample_rays(30000,True)
         window.Refresh()
 
 
@@ -207,45 +282,18 @@ def post_draw():
 
     glDisable(GL_LIGHTING)
 
-    #find_direct_ray()
-
     glPushAttrib(GL_ALL_ATTRIB_BITS)
-    if 'paths' in globals():
-        glLineWidth(2)
-        glBegin(GL_LINES)
-        for path in paths:
-            x1 = path[0]['origin']
-            #orgn = True
-            for d in path[1:]:
-                ntype = d['ntype']
-                origin = d['origin']
-                if ntype == 'sink': glColor(1,.7,.7)
-                #elif orgn: glColor(.7,.7,1); orgn=False
-                else: glColor(1,1,1)
-                x2 = origin
-                glVertex(*x1)
-                glVertex(*x2)
-                x1 = x2
-        glEnd()
+    if 'line_verts' in globals() and len(line_verts):
+        glLineWidth(1)
+        glVertexPointerf(line_verts)
+        glColorPointerf(line_colors)
+        glDisableClientState(GL_NORMAL_ARRAY)
+        glEnableClientState(GL_VERTEX_ARRAY)
+        glEnableClientState(GL_COLOR_ARRAY)
+        glDrawElementsui(GL_LINES, np.arange(len(line_verts))[-1000:])
+        glDisableClientState(GL_COLOR_ARRAY)
+        glDisableClientState(GL_VERTEX_ARRAY)
 
-    if 'ray' in globals():
-        glColor(1,1,0)
-        x1,d = ray['origin'], ray['direction']
-        t = ray['t']
-        if t > 1000: t = 1000
-
-        glPointSize(10)
-        glColor(0,1,0)
-        glDisable(GL_DEPTH_TEST)
-        glBegin(GL_POINTS)
-        glVertex(*(x1+d*t))
-        glEnd()
-        glEnable(GL_DEPTH_TEST)
-        glLineWidth(3)
-        glBegin(GL_LINES)
-        glVertex(*x1)
-        glVertex(*(x1+d*t))
-        glEnd()
     glPopAttrib(GL_ALL_ATTRIB_BITS)
 
 
